@@ -74,6 +74,20 @@ instance AltWrapAndMappable2 Maybe where
 myMap2' :: AltWrapAndMappable2 f => (a -> b -> c) -> f a -> f b -> f c
 myMap2' = undefined
 
+-- Defining intermediate values
+myArithmeticFunction :: Int -> Int 
+myArithmeticFunction x =
+    let
+        added2 = x + 2
+    in
+        added2 * 3 -- Exact same as (x + 2) * 3
+
+myArithmeticFunction' :: Int -> Int 
+myArithmeticFunction' x =
+    added2 * 3 -- Exact same as (x + 2) * 3
+        where
+            added2 = x + 2
+
 myAddition :: Int -> Int -> Int
 myAddition x y = x + y
 
