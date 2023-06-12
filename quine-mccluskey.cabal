@@ -124,4 +124,8 @@ test-suite quine-mccluskey-test
     -- Test dependencies.
     build-depends:
         base ^>=4.16.4.0,
+        tasty ==1.4.3,
+        tasty-smallcheck ==0.8.2,
+        tasty-hunit ==0.10.0.3,
+        tasty-quickcheck ==0.10.2,
         quine-mccluskey
