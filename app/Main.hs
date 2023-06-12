@@ -14,7 +14,7 @@ main = do
 
 customInput :: Input
 customInput = Input
-    { minTerms = 
+    { minTerms =
             [ [False, True, False, False]
             , [True, False, False, False]
             , [True, False, True, False]
@@ -89,7 +89,7 @@ calculateTableResult :: Input -> [ Bool ] -> TableResult
 calculateTableResult input bools =
     let
         currentMinTerms = minTerms input
-        isMinTerm = (or . fmap (\x -> (traceSelf x) == (bools & traceSelf)) $ currentMinTerms) & traceSelf
+        isMinTerm = or . fmap (== bools) $ currentMinTerms
         currentDontCares = dontCare input
         isDontCare = or . fmap (== bools) $ currentDontCares
     in
@@ -104,9 +104,6 @@ generateTable myInput totalNumOfBooleanVars =
 shouldIncludeTableResult :: TableResult -> Bool
 shouldIncludeTableResult DontCare = False
 shouldIncludeTableResult (BoolValue x) = x
-
--- traceSelf a = traceShow a a
-traceSelf a = a
 
 idxToVariableName :: Natural -> String
 idxToVariableName idx = ['a'..'z']
@@ -123,9 +120,9 @@ singleMinTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1
         convertBoolToBooleanExpression True (idx, currentExpression) = (idx + 1, And (LogicalVariable $ idxToVariableName idx) currentExpression)
         convertBoolToBooleanExpression False (idx, currentExpression) = (idx + 1, And (Not (LogicalVariable $ idxToVariableName idx)) currentExpression)
 
+-- This doesn't do minimization yet, just finds a correct expression
 goalFunction :: Input -> Natural -> BooleanExpression
 goalFunction myInput totalNumOfBooleanVars = generateTable myInput totalNumOfBooleanVars
     & filter (\(_, tableResult) -> shouldIncludeTableResult tableResult)
-    & traceSelf
     & fmap (singleMinTermToBooleanExpression . fst)
     & foldr1 Or
