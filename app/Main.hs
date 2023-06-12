@@ -3,6 +3,7 @@
 
 module Main where
 import Data.String (IsString(..))
+import Numeric.Natural (Natural)
 
 main :: IO ()
 main = myFunction
@@ -28,6 +29,44 @@ instance IsString BooleanExpression where
 myExpression :: BooleanExpression
 myExpression = "x" * "y" + "y" * "z" + (-"w")
 
+class Mappable f where
+    myMap :: (a -> b) -> f a -> f b
+
+-- This means to implement MultipleMappabe you must implement both myMap and myMap2
+class Mappable g => Mappable2 g where
+    myMap2 :: (a -> b -> c) -> g a -> g b -> g c
+
+instance Mappable Maybe where
+    myMap f (Just x) = Just (f x)
+    myMap _ Nothing = Nothing
+
+instance Mappable2 Maybe where
+    myMap2 f (Just x) (Just y) = Just (f x y)
+    myMap2 _ Nothing _ = Nothing
+    myMap2 _ _ Nothing = Nothing
+
+class Wrappable f where
+    wrap :: a -> f a
+
+instance Wrappable Maybe where
+    wrap = Just
+
+class (Wrappable f, Mappable2 f) => WrapAndMappable2 f where
+
+class AltWrapAndMappable2 f where
+    wrap' :: a -> f a
+    moveOutFromTuple :: (f a, f b) -> f (a, b)
+
+data Input = Input
+    { minTerms :: [ Natural ]
+    , dontCare :: [ Natural ]
+    , totalNumOfBooleanVars :: Natural
+    }
+
+    -- I want 0 as my only minterm
+    -- I don't care about 1 and 2
+    -- Is this 4 boolean values with the fourth always set to 1? Is this 8 boolean values with 3, 4, 5, 6, 7 all set to 1?
+
 instance Num BooleanExpression where
     (*) :: BooleanExpression -> BooleanExpression -> BooleanExpression
     x * y = And x y
@@ -47,6 +86,13 @@ instance Num BooleanExpression where
     fromInteger :: Integer -> BooleanExpression
     fromInteger = undefined
 
+data TableResult
+    = DontCare
+    | BoolValue Bool
 
-goalFunction :: BooleanExpression -> BooleanExpression
+generateTable :: Input -> [([ Bool ], TableResult )]
+generateTable myInput = undefined
+
+
+goalFunction :: Input -> BooleanExpression
 goalFunction = undefined
