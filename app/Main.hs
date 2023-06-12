@@ -9,7 +9,6 @@ import Data.Function ((&))
 
 main :: IO ()
 main = do
-    print (calculateTableResult customInput [False,True,False,False])
     print (goalFunction customInput)
 
 customInput :: Input
