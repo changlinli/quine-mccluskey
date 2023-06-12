@@ -32,6 +32,7 @@ myExpression = "x" * "y" + "y" * "z" + (-"w")
 class Mappable f where
     myMap :: (a -> b) -> f a -> f b
 
+
 -- This means to implement MultipleMappabe you must implement both myMap and myMap2
 class Mappable g => Mappable2 g where
     myMap2 :: (a -> b -> c) -> g a -> g b -> g c
@@ -39,6 +40,11 @@ class Mappable g => Mappable2 g where
 instance Mappable Maybe where
     myMap f (Just x) = Just (f x)
     myMap _ Nothing = Nothing
+
+myFunction' :: Int -> Int
+myFunction' x = x + 1
+
+usingMyMap = myMap myFunction' (Just 0) -- Just 1
 
 instance Mappable2 Maybe where
     myMap2 f (Just x) (Just y) = Just (f x y)
@@ -58,8 +64,21 @@ class AltWrapAndMappable2 f where
     myMap' :: (a -> b) -> f a -> f b
     moveOutFromTuple :: (f a, f b) -> f (a, b)
 
+instance AltWrapAndMappable2 Maybe where
+    wrap' = Just
+    myMap' = fmap
+    moveOutFromTuple (Just x, Just y) = Just (x, y)
+    moveOutFromTuple (Nothing, _) = Nothing
+    moveOutFromTuple (_, Nothing) = Nothing
+
 myMap2' :: AltWrapAndMappable2 f => (a -> b -> c) -> f a -> f b -> f c
 myMap2' = undefined
+
+myAddition :: Int -> Int -> Int
+myAddition x y = x + y
+
+usingMyMap2' :: Maybe Int
+usingMyMap2' = myMap2' myAddition (Just 1) (Just 2) -- Just 3
 
 data Input = Input
     { minTerms :: [ Natural ]
