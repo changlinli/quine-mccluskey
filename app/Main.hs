@@ -55,7 +55,11 @@ class (Wrappable f, Mappable2 f) => WrapAndMappable2 f where
 
 class AltWrapAndMappable2 f where
     wrap' :: a -> f a
+    myMap' :: (a -> b) -> f a -> f b
     moveOutFromTuple :: (f a, f b) -> f (a, b)
+
+myMap2' :: AltWrapAndMappable2 f => (a -> b -> c) -> f a -> f b -> f c
+myMap2' = undefined
 
 data Input = Input
     { minTerms :: [ Natural ]
