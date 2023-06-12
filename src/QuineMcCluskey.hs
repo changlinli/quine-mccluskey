@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module QuineMcCluskey (main) where
+
 import Data.String (IsString(..))
 import Numeric.Natural (Natural)
 import Data.Function ((&))

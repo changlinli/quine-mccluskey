@@ -6,16 +6,23 @@ import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
 
 import Data.List
-import Data.Ord
+
+import qualified QuineMcCluskey as QM
 
 main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [properties, unitTests]
+tests = testGroup "Tests" 
+  [ properties
+  , unitTests
+  ]
 
 properties :: TestTree
-properties = testGroup "Properties" [scProps, qcProps]
+properties = testGroup "Properties" 
+  [ scProps
+  , qcProps
+  ]
 
 scProps = testGroup "(checked by SmallCheck)"
   [ SC.testProperty "sort == sort . reverse" $
