@@ -1,26 +1,46 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
-module Main where
+module Main (main) where
 import Data.String (IsString(..))
 import Numeric.Natural (Natural)
+import Data.Function ((&))
+import Debug.Trace (traceShow)
 
 main :: IO ()
-main = myFunction
+main = do
+    print (calculateTableResult customInput [False,True,False,False])
+    print (goalFunction customInput 4)
 
-
-myFunction :: IO ()
-myFunction = putStrLn "Hello, Haskell!"
+customInput :: Input
+customInput = Input
+    { minTerms = 
+            [ [False, True, False, False]
+            , [True, False, False, False]
+            , [True, False, True, False]
+            , [True, False, True, True]
+            , [True, True, False, False]
+            , [True, True, True, True]
+            ]
+    , dontCare =
+            [ [True, False, False, True ]
+            , [True, True, True, False ]
+            ]
+    }
 
 data BooleanExpression
     = And BooleanExpression BooleanExpression
     | Or BooleanExpression BooleanExpression
     | Not BooleanExpression
     | LogicalVariable String
-    deriving (Eq, Show)
+    deriving (Eq)
 
-l :: String -> BooleanExpression
-l = LogicalVariable
+instance Show BooleanExpression where
+    show (And x0 x1) = show x0 ++ " * " ++ show x1
+    show (Or x0 x1) = show x0 ++ " + " ++ show x1
+    show (Not x0) = "-(" ++ show x0 ++ ")"
+    show (LogicalVariable str) = "\"" ++ str ++ "\""
 
 instance IsString BooleanExpression where
     fromString :: String -> BooleanExpression
@@ -74,15 +94,67 @@ instance AltWrapAndMappable2 Maybe where
 myMap2' :: AltWrapAndMappable2 f => (a -> b -> c) -> f a -> f b -> f c
 myMap2' = undefined
 
+myMap3' :: AltWrapAndMappable2 f => (a -> b -> c -> d) -> f a -> f b -> f c -> f d
+myMap3' f x y z =
+    let
+        something = myMap2' f x y
+        -- applyAFunction not True <=> not True
+        applyAFunction g a = g a
+    in
+        myMap2' applyAFunction something z
+
+class (AltWrapAndMappable2 f) => MyFlattable f where
+    flatten :: f (f a) -> f a
+    -- unwrap :: f a -> a
+
+class MyMonad f where
+    wrap'' :: a -> f a
+    map'' :: (a -> b) -> f a -> f b
+    flatten'' :: f (f a) -> f a
+
+flatMap :: MyMonad m => (a -> m b) -> m a -> m b
+flatMap f a = flatten'' (map'' f a)
+
+myMap2'' :: MyMonad m => forall a b c. (a -> b -> c) -> m a -> m b -> m c
+myMap2'' f x y =
+    let
+        -- intermediateF :: m (b -> c)
+        intermediateF = map'' f x
+        -- mapFAgain :: m (m c)
+        mapFAgain = map'' (`map''` y) intermediateF
+    in
+        flatten'' mapFAgain
+
+
+ifElse :: Bool -> a -> a -> a
+ifElse condition thenAction elseAction = if condition then thenAction else elseAction
+
+ifElseMaybe0 :: Maybe Bool -> Maybe a -> Maybe a -> Maybe a
+ifElseMaybe0 Nothing _ _ = Nothing
+ifElseMaybe0 (Just _) Nothing _ = Nothing
+ifElseMaybe0 (Just _) _ Nothing = Nothing
+ifElseMaybe0 (Just condition) (Just thenAction) (Just elseAction) = Just (ifElse condition thenAction elseAction)
+
+ifElseMaybe0' :: Maybe Bool -> Maybe a -> Maybe a -> Maybe a
+ifElseMaybe0' = myMap3' ifElse
+
+ifElseMaybe1 :: Maybe Bool -> Maybe a -> Maybe a -> Maybe a
+ifElseMaybe1 Nothing _ _ = Nothing
+ifElseMaybe1 (Just True) Nothing _ = Nothing
+ifElseMaybe1 (Just False) _ (Just elseValue) = Just elseValue
+ifElseMaybe1 (Just False) _ Nothing = Nothing
+ifElseMaybe1 (Just x) (Just thenValue) (Just elseValue) = Just (ifElse x thenValue elseValue)
+
+
 -- Defining intermediate values
-myArithmeticFunction :: Int -> Int 
+myArithmeticFunction :: Int -> Int
 myArithmeticFunction x =
     let
         added2 = x + 2
     in
         added2 * 3 -- Exact same as (x + 2) * 3
 
-myArithmeticFunction' :: Int -> Int 
+myArithmeticFunction' :: Int -> Int
 myArithmeticFunction' x =
     added2 * 3 -- Exact same as (x + 2) * 3
         where
@@ -95,9 +167,8 @@ usingMyMap2' :: Maybe Int
 usingMyMap2' = myMap2' myAddition (Just 1) (Just 2) -- Just 3
 
 data Input = Input
-    { minTerms :: [ Natural ]
-    , dontCare :: [ Natural ]
-    , totalNumOfBooleanVars :: Natural
+    { minTerms :: [[Bool]]
+    , dontCare :: [[Bool]]
     }
 
     -- I want 0 as my only minterm
@@ -126,10 +197,53 @@ instance Num BooleanExpression where
 data TableResult
     = DontCare
     | BoolValue Bool
+    deriving (Eq, Show)
 
-generateTable :: Input -> [([ Bool ], TableResult )]
-generateTable myInput = undefined
+generateAllBooleanPossibilities :: Natural -> [[ Bool ]]
+generateAllBooleanPossibilities 0 = [[]]
+generateAllBooleanPossibilities n = generateAllBooleanPossibilities (n - 1) >>= (\possibility -> [ True : possibility, False : possibility ])
 
+calculateTableResult :: Input -> [ Bool ] -> TableResult
+calculateTableResult input bools =
+    let
+        currentMinTerms = minTerms input
+        isMinTerm = (or . fmap (\x -> (traceSelf x) == (bools & traceSelf)) $ currentMinTerms) & traceSelf
+        currentDontCares = dontCare input
+        isDontCare = or . fmap (== bools) $ currentDontCares
+    in
+        if isDontCare then DontCare
+        else if isMinTerm then BoolValue True
+        else BoolValue False
 
-goalFunction :: Input -> BooleanExpression
-goalFunction = undefined
+generateTable :: Input -> Natural -> [([ Bool ], TableResult )]
+generateTable myInput totalNumOfBooleanVars =
+    fmap (\row -> (row, calculateTableResult myInput row)) (generateAllBooleanPossibilities totalNumOfBooleanVars)
+
+shouldIncludeTableResult :: TableResult -> Bool
+shouldIncludeTableResult DontCare = False
+shouldIncludeTableResult (BoolValue x) = x
+
+-- traceSelf a = traceShow a a
+traceSelf a = a
+
+idxToVariableName :: Natural -> String
+idxToVariableName idx = ['a'..'z']
+    & fmap (\c -> [c])
+    & drop (fromInteger. toInteger $ idx)
+    & head
+
+singleMinTermToBooleanExpression :: [ Bool ] -> BooleanExpression
+singleMinTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
+    where
+        firstElem = head bools
+        firstElemExpression = if firstElem then "a" else Not "a"
+
+        convertBoolToBooleanExpression True (idx, currentExpression) = (idx + 1, And (LogicalVariable $ idxToVariableName idx) currentExpression)
+        convertBoolToBooleanExpression False (idx, currentExpression) = (idx + 1, And (Not (LogicalVariable $ idxToVariableName idx)) currentExpression)
+
+goalFunction :: Input -> Natural -> BooleanExpression
+goalFunction myInput totalNumOfBooleanVars = generateTable myInput totalNumOfBooleanVars
+    & filter (\(_, tableResult) -> shouldIncludeTableResult tableResult)
+    & traceSelf
+    & fmap (singleMinTermToBooleanExpression . fst)
+    & foldr1 Or
