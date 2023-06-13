@@ -2,15 +2,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module QuineMcCluskey (main) where
+module QuineMcCluskey (main, BooleanFormula(..), interpretBooleanFormula) where
 
 import Data.String (IsString(..))
 import Numeric.Natural (Natural)
 import Data.Function ((&))
+import qualified Data.Map as Map
 
 main :: IO ()
 main = do
-    print (goalFunction customInput)
+    print (calculateSumOfProductsFormula customInput)
 
 customInput :: Input
 customInput = Input
@@ -49,9 +50,6 @@ instance Show BooleanFormula where
 instance IsString BooleanFormula where
     fromString :: String -> BooleanFormula
     fromString = LogicalVariable
-
-myFormula :: BooleanFormula
-myFormula = "x" * "y" + "y" * "z" + (-"w")
 
 data Input = Input
     { minTerms :: [[Bool]]
@@ -141,8 +139,38 @@ singleMinTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1
         convertBoolToBooleanExpression False (idx, currentExpression) = (idx + 1, And currentExpression (Not (LogicalVariable $ idxToVariableName idx)))
 
 -- This doesn't do minimization yet, just finds a correct expression
-goalFunction :: Input -> BooleanFormula
-goalFunction myInput = generateTable myInput
+calculateSumOfProductsFormula :: Input -> BooleanFormula
+calculateSumOfProductsFormula myInput = generateTable myInput
     & filter (\(_, tableResult) -> shouldIncludeTableResult tableResult)
     & fmap (singleMinTermToBooleanExpression . fst)
     & foldr1 Or
+
+retrieveVariablesFromBooleanFormula :: BooleanFormula -> [ String ]
+retrieveVariablesFromBooleanFormula (And x0 x1) = retrieveVariablesFromBooleanFormula x0 ++ retrieveVariablesFromBooleanFormula x1
+retrieveVariablesFromBooleanFormula (Or x0 x1) = retrieveVariablesFromBooleanFormula x0 ++ retrieveVariablesFromBooleanFormula x1
+retrieveVariablesFromBooleanFormula (Not x) = retrieveVariablesFromBooleanFormula x
+retrieveVariablesFromBooleanFormula (LogicalVariable var) = [ var ]
+retrieveVariablesFromBooleanFormula ConstantTrue = []
+retrieveVariablesFromBooleanFormula ConstantFalse = []
+
+-- If the number of bools given is incorrect, we give back Nothing
+interpretBooleanFormula :: BooleanFormula -> [ Bool ] -> Maybe Bool
+interpretBooleanFormula formula bools =
+    case formula of
+        And x0 x1 ->
+            do
+                y0 <- interpretBooleanFormula x0 bools
+                y1 <- interpretBooleanFormula x1 bools
+                pure (y0 && y1)
+        Or x0 x1 ->
+            do
+                y0 <- interpretBooleanFormula x0 bools
+                y1 <- interpretBooleanFormula x1 bools
+                pure (y0 || y1)
+        Not x -> not <$> interpretBooleanFormula x bools
+        LogicalVariable var -> Map.lookup var variablesToBools
+        ConstantTrue -> Just True
+        ConstantFalse -> Just False
+    where
+        variablesToBools = zip (retrieveVariablesFromBooleanFormula formula) bools
+            & Map.fromList
