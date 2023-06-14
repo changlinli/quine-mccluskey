@@ -14,6 +14,8 @@ module QuineMcCluskey
     , ImplicantValue(..)
     , stringToImplicant
     , deriveNewImplicants
+    , calculatePrimeImplicantsFormula
+    , Input(..)
     )
 where
 
@@ -313,7 +315,6 @@ derivePrimeImplicantsFromImplicants implicants =
 calculatePrimeImplicantsFormula :: Input -> [ Implicant ]
 calculatePrimeImplicantsFormula myInput = generateTermTable myInput
     & filter (\(_, value) -> termBoolOutputIsNotFalse value)
-    & \x -> x
     & fmap (fmap BoolValue . fst)
     & derivePrimeImplicantsFromImplicants
 

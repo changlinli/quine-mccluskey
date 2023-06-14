@@ -10,7 +10,7 @@ import Test.Tasty.HUnit
 import Data.List
 
 import qualified QuineMcCluskey as QM
-import Data.Maybe (fromMaybe, isJust)
+import qualified GHC.IO.Encoding as QM
 
 main :: IO ()
 main = defaultMain tests
@@ -64,6 +64,22 @@ myFormula0 = "x" * "y" + "y" * "z" + (-"w")
 myFormula1 :: QM.BooleanFormula
 myFormula1 = "x" * "y" + "y" * "z"
 
+calculatePrimeImplicantsFormulaCase0Input :: QM.Input
+calculatePrimeImplicantsFormulaCase0Input = QM.Input
+    { QM.minTerms =
+            [ [False, True, False, False]
+            , [True, False, False, False]
+            , [True, False, True, False]
+            , [True, False, True, True]
+            , [True, True, False, False]
+            , [True, True, True, True]
+            ]
+    , QM.dontCare =
+            [ [True, False, False, True ]
+            , [True, True, True, False ]
+            ]
+    }
+
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
   [ testCase "Example Boolean formula is interpreted correctly" $
@@ -85,4 +101,12 @@ unitTests = testGroup "Unit tests"
         , QM.stringToImplicant "1100" 
         ]
         @?= [ QM.stringToImplicant "-100" ]
+  , testCase "calculatePrimeImplicantsFormula works on known input case 0" $
+    QM.calculatePrimeImplicantsFormula calculatePrimeImplicantsFormulaCase0Input 
+      @?= 
+        [ QM.stringToImplicant "-100"
+        , QM.stringToImplicant "1--0"
+        , QM.stringToImplicant "1-1-"
+        , QM.stringToImplicant "10--"
+        ]
   ]
