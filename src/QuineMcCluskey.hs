@@ -1,17 +1,36 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveGeneric #-}
 
-module QuineMcCluskey (main, BooleanFormula(..), interpretBooleanFormula) where
+module QuineMcCluskey
+    ( main
+    , BooleanFormula(..)
+    , interpretBooleanFormula
+    , retrieveVariablesFromBooleanFormula
+    , combineImplicants
+    , ImplicantValue(..)
+    , stringToImplicant
+    , deriveNewImplicants
+    )
+where
 
 import Data.String (IsString(..))
 import Numeric.Natural (Natural)
 import Data.Function ((&))
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import Data.Maybe (mapMaybe)
+import GHC.Generics (Generic)
+import Test.SmallCheck.Series (Serial)
+
 
 main :: IO ()
 main = do
     print (calculateSumOfProductsFormula customInput)
+    print (calculatePrimeImplicantsFormula customInput)
 
 customInput :: Input
 customInput = Input
@@ -36,7 +55,9 @@ data BooleanFormula
     | LogicalVariable String
     | ConstantTrue
     | ConstantFalse
-    deriving (Eq)
+    deriving (Eq, Generic)
+
+instance (Monad m) => Serial m BooleanFormula
 
 instance Show BooleanFormula where
     show (And x0 x1) = show x0 ++ show x1
@@ -57,7 +78,7 @@ data Input = Input
     }
 
 numOfBooleanVars :: Input -> Natural
-numOfBooleanVars input = (minTerms input) & head & length & fromIntegral
+numOfBooleanVars input = minTerms input & head & length & fromIntegral
 
     -- I want 0 as my only minterm
     -- I don't care about 1 and 2
@@ -87,16 +108,23 @@ instance Num BooleanFormula where
         -- Various values of infinity
         | otherwise = ConstantFalse
 
-data TableResult
+data TermTableOutput
+    = DontCareAboutTerm
+    | TermBoolOutput Bool
+    deriving (Eq, Show, Ord)
+
+data ImplicantValue
     = DontCare
     | BoolValue Bool
-    deriving (Eq, Show)
+    deriving (Eq, Show, Ord)
+
+type Implicant = [ ImplicantValue ]
 
 generateAllBooleanPossibilities :: Natural -> [[ Bool ]]
 generateAllBooleanPossibilities 0 = [[]]
 generateAllBooleanPossibilities n = generateAllBooleanPossibilities (n - 1) >>= (\possibility -> [ True : possibility, False : possibility ])
 
-calculateTableResult :: Input -> [ Bool ] -> TableResult
+calculateTableResult :: Input -> [ Bool ] -> TermTableOutput
 calculateTableResult input bools =
     let
         currentMinTerms = minTerms input
@@ -104,17 +132,21 @@ calculateTableResult input bools =
         currentDontCares = dontCare input
         isDontCare = or . fmap (== bools) $ currentDontCares
     in
-        if isDontCare then DontCare
-        else if isMinTerm then BoolValue True
-        else BoolValue False
+        if isDontCare then DontCareAboutTerm
+        else if isMinTerm then TermBoolOutput True
+        else TermBoolOutput False
 
-generateTable :: Input -> [([ Bool ], TableResult )]
-generateTable myInput =
+generateTermTable :: Input -> [([ Bool ], TermTableOutput )]
+generateTermTable myInput =
     fmap (\row -> (row, calculateTableResult myInput row)) (generateAllBooleanPossibilities (numOfBooleanVars myInput))
 
-shouldIncludeTableResult :: TableResult -> Bool
-shouldIncludeTableResult DontCare = False
-shouldIncludeTableResult (BoolValue x) = x
+isTrueValue :: TermTableOutput -> Bool
+isTrueValue DontCareAboutTerm = False
+isTrueValue (TermBoolOutput x) = x
+
+termBoolOutputIsNotFalse :: TermTableOutput -> Bool
+termBoolOutputIsNotFalse DontCareAboutTerm = True
+termBoolOutputIsNotFalse (TermBoolOutput x) = x
 
 -- A fun little application of Haskell's laziness and infinite lists
 variableNames :: [ String ]
@@ -129,8 +161,37 @@ toInt x = fromIntegral (toInteger x)
 idxToVariableName :: Natural -> String
 idxToVariableName idx = variableNames !! toInt idx
 
-singleMinTermToBooleanExpression :: [ Bool ] -> BooleanFormula
-singleMinTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
+implicantToBooleanExpression :: Implicant -> Maybe BooleanFormula
+implicantToBooleanExpression implicant = foldr convertBoolToBooleanExpression (1, firstElemExpression) (tail implicant) & snd
+    where
+        firstElem = head implicant
+        firstElemExpression = case firstElem of
+            DontCare -> Nothing
+            BoolValue boolVal -> if boolVal then Just "a" else Just . Not $ "a"
+
+        convertBoolToBooleanExpression implicantValue (idx, currentExpressionMaybe) =
+            case (implicantValue, currentExpressionMaybe) of
+                (BoolValue True, Just currentExpression) ->
+                    (idx + 1, Just $ And currentExpression (LogicalVariable $ idxToVariableName idx))
+
+                (BoolValue False, Just currentExpression) ->
+                    (idx + 1, Just $ And currentExpression (Not (LogicalVariable $ idxToVariableName idx)))
+
+                (DontCare, Just currentExpression) ->
+                    (idx + 1, Just currentExpression )
+
+                (BoolValue True, Nothing) ->
+                    (idx + 1, Just (LogicalVariable $ idxToVariableName idx))
+
+                (BoolValue False, Nothing) ->
+                    (idx + 1, Just (Not (LogicalVariable $ idxToVariableName idx)))
+
+                (DontCare, Nothing) ->
+                    (idx + 1, Nothing)
+
+-- The minimal boolean formula which is true if and only if passed this set of booleans
+boolTermToBooleanExpression :: [ Bool ] -> BooleanFormula
+boolTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
     where
         firstElem = head bools
         firstElemExpression = if firstElem then "a" else Not "a"
@@ -138,12 +199,123 @@ singleMinTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1
         convertBoolToBooleanExpression True (idx, currentExpression) = (idx + 1, And currentExpression (LogicalVariable $ idxToVariableName idx))
         convertBoolToBooleanExpression False (idx, currentExpression) = (idx + 1, And currentExpression (Not (LogicalVariable $ idxToVariableName idx)))
 
+extractBoolValue :: ImplicantValue -> Maybe Bool
+extractBoolValue implicantValue = case implicantValue of
+    DontCare -> Nothing
+    BoolValue bool -> Just bool
+
+implicantToBooleanFormula :: Implicant -> BooleanFormula
+implicantToBooleanFormula implicant = mapMaybe extractBoolValue implicant
+    & boolTermToBooleanExpression
+
 -- This doesn't do minimization yet, just finds a correct expression
 calculateSumOfProductsFormula :: Input -> BooleanFormula
-calculateSumOfProductsFormula myInput = generateTable myInput
-    & filter (\(_, tableResult) -> shouldIncludeTableResult tableResult)
-    & fmap (singleMinTermToBooleanExpression . fst)
+calculateSumOfProductsFormula myInput = generateTermTable myInput
+    & filter (\(_, tableResult) -> isTrueValue tableResult)
+    & fmap (boolTermToBooleanExpression . fst)
     & foldr1 Or
+
+data ImplicantComparison
+    = IdenticalSoFar Implicant
+    | IdenticalExceptForOneBoolVal Implicant
+    | MismatchedDontCares
+    | MoreThanOneBoolValDifferent
+
+implicantsFoldOnce :: (ImplicantValue, ImplicantValue) -> ImplicantComparison -> ImplicantComparison
+implicantsFoldOnce (i0, i1) comparisonResult =
+    case comparisonResult of
+        IdenticalSoFar previous -> case (i0, i1) of
+            (DontCare, DontCare) -> IdenticalSoFar (i0 : previous)
+            (DontCare, BoolValue _) -> MismatchedDontCares
+            (BoolValue _, DontCare) -> MismatchedDontCares
+            (BoolValue b0, BoolValue b1) -> if b0 == b1 then IdenticalSoFar (i0 : previous) else IdenticalExceptForOneBoolVal (DontCare : previous)
+        IdenticalExceptForOneBoolVal previous -> case (i0, i1) of
+            (DontCare, DontCare) -> IdenticalExceptForOneBoolVal (i0 : previous)
+            (DontCare, BoolValue _) -> MismatchedDontCares
+            (BoolValue _, DontCare) -> MismatchedDontCares
+            (BoolValue b0, BoolValue b1) -> if b0 == b1 then IdenticalExceptForOneBoolVal (i0 : previous) else MoreThanOneBoolValDifferent
+        MismatchedDontCares -> MismatchedDontCares
+        MoreThanOneBoolValDifferent -> MoreThanOneBoolValDifferent
+
+-- Must assume that two implicants are of same length
+-- Only combine implicants if they differ by exactly one BoolValue
+-- Replace with DontCare in that case
+-- Otherwise return Nothing
+combineImplicants :: Implicant -> Implicant -> Maybe Implicant
+combineImplicants implicant0 implicant1 =
+    case foldr implicantsFoldOnce (IdenticalSoFar []) (zip implicant0 implicant1) of
+        IdenticalSoFar _ -> Nothing
+        IdenticalExceptForOneBoolVal result -> Just result
+        MismatchedDontCares -> Nothing
+        MoreThanOneBoolValDifferent -> Nothing
+
+-- A nice way of writing them out with ones and zeroes and dashes
+stringToImplicant :: String -> Implicant
+stringToImplicant = mapMaybe 
+    (\c -> 
+        if c == '1' 
+            then Just $ BoolValue True 
+            else if c == '0' then Just $ BoolValue False 
+            else if c == '-' then Just DontCare 
+            else Nothing
+    )
+
+data ImplicantUsage = ImplicantUsage
+    { implicantsUsed :: Set.Set Implicant
+    , allStartingImplicants :: [ Implicant ]
+    , newImplicants :: Set.Set Implicant
+    }
+    deriving (Show)
+
+combineImplicantWithCurrentImplicants :: ImplicantUsage -> Implicant -> ImplicantUsage
+combineImplicantWithCurrentImplicants implicantUsage newImplicant =
+    let
+        currentImplicantsUsed = implicantsUsed implicantUsage
+        currentAllStartingImplicants = allStartingImplicants implicantUsage
+        currentNewImplicants = newImplicants implicantUsage
+        moreNewImplicants =
+            mapMaybe (combineImplicants newImplicant) currentAllStartingImplicants
+    in
+        if not (null moreNewImplicants)
+            then ImplicantUsage
+                { implicantsUsed = Set.insert newImplicant currentImplicantsUsed
+                , allStartingImplicants = currentAllStartingImplicants
+                , newImplicants = foldr Set.insert currentNewImplicants moreNewImplicants
+                }
+            else implicantUsage
+
+initializeImplicantUsage :: [ Implicant ] -> ImplicantUsage
+initializeImplicantUsage implicants = ImplicantUsage
+    { implicantsUsed = Set.empty
+    , allStartingImplicants = implicants
+    , newImplicants = Set.empty
+    }
+
+deriveNewImplicants :: [ Implicant ] -> [ Implicant ]
+deriveNewImplicants implicants =
+    let
+        finalImplicantUsage = foldl combineImplicantWithCurrentImplicants (initializeImplicantUsage implicants) implicants
+        finalImplicantsUsed = implicantsUsed finalImplicantUsage
+        implicantsNotUsed = filter (not . (`Set.member` finalImplicantsUsed)) implicants
+        newImplicantsAsList = Set.toList . newImplicants $ finalImplicantUsage
+    in
+        implicantsNotUsed ++ newImplicantsAsList
+
+derivePrimeImplicantsFromImplicants :: [ Implicant ] -> [ Implicant ]
+derivePrimeImplicantsFromImplicants implicants =
+    let
+        result = deriveNewImplicants implicants
+    in
+        if result == implicants
+            then result
+            else derivePrimeImplicantsFromImplicants result
+
+calculatePrimeImplicantsFormula :: Input -> [ Implicant ]
+calculatePrimeImplicantsFormula myInput = generateTermTable myInput
+    & filter (\(_, value) -> termBoolOutputIsNotFalse value)
+    & \x -> x
+    & fmap (fmap BoolValue . fst)
+    & derivePrimeImplicantsFromImplicants
 
 retrieveVariablesFromBooleanFormula :: BooleanFormula -> [ String ]
 retrieveVariablesFromBooleanFormula (And x0 x1) = retrieveVariablesFromBooleanFormula x0 ++ retrieveVariablesFromBooleanFormula x1

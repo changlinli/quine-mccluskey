@@ -10,27 +10,35 @@ import Test.Tasty.HUnit
 import Data.List
 
 import qualified QuineMcCluskey as QM
+import Data.Maybe (fromMaybe, isJust)
 
 main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" 
+tests = testGroup "Tests"
   [ properties
   , unitTests
   ]
 
 properties :: TestTree
-properties = testGroup "Properties" 
+properties = testGroup "Properties"
   [ scProps
   , qcProps
   ]
 
 scProps :: TestTree
 scProps = testGroup "(checked by SmallCheck)"
-  [ SC.testProperty "sort == sort . reverse" $
-      \list -> sort (list :: [Int]) == sort (reverse list)
-  , SC.testProperty "Fermat's little theorem" $
+  -- [ SC.testProperty "all BooleanFormula values are valid boolean functions" $
+  --     \booleanFormula -> 
+  --       let
+  --         result =
+  --           QM.interpretBooleanFormula
+  --             booleanFormula
+  --             (replicate (length . QM.retrieveVariablesFromBooleanFormula $ booleanFormula) True)
+  --       in
+  --         isJust result
+  [ SC.testProperty "Fermat's little theorem" $
       \x -> ((x :: Integer)^(7::Integer) - x) `mod` 7 == 0
   -- the following property does not hold
   -- , SC.testProperty "Fermat's last theorem" $
@@ -63,4 +71,18 @@ unitTests = testGroup "Unit tests"
 
   , testCase "Another example Boolean formula is interpreted correctly" $
       QM.interpretBooleanFormula myFormula1 [False, False, False] @?= Just False
+  , testCase "combineImplicants works on known inputs case 0" $
+      QM.combineImplicants (QM.stringToImplicant "0100") (QM.stringToImplicant "1100") @?= Just (QM.stringToImplicant "-100")
+  , testCase "combineImplicants works on known inputs case 1" $
+      QM.combineImplicants (QM.stringToImplicant "1000") (QM.stringToImplicant "1001") @?= Just (QM.stringToImplicant "100-")
+  , testCase "combineImplicants works on known inputs case 2" $
+      QM.combineImplicants (QM.stringToImplicant "1000") (QM.stringToImplicant "1011") @?= Nothing
+  , testCase "combineImplicants works on known inputs case 3" $
+      QM.combineImplicants (QM.stringToImplicant "100-") (QM.stringToImplicant "-000") @?= Nothing
+  , testCase "deriveNewImplicants works on known inputs case 0" $
+      QM.deriveNewImplicants 
+        [ QM.stringToImplicant "0100" 
+        , QM.stringToImplicant "1100" 
+        ]
+        @?= [ QM.stringToImplicant "-100" ]
   ]
