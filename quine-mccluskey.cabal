@@ -131,4 +131,6 @@ test-suite quine-mccluskey-test
         tasty-smallcheck ==0.8.2,
         tasty-hunit ==0.10.0.3,
         tasty-quickcheck ==0.10.2,
+        tasty-hedgehog ==1.4.0.1,
+        hedgehog ==1.2,
         quine-mccluskey

@@ -14,7 +14,9 @@ module QuineMcCluskey
     , ImplicantValue(..)
     , stringToImplicant
     , deriveNewImplicants
+    , calculatePrimeImplicants
     , calculatePrimeImplicantsFormula
+    , calculateSumOfProductsFormula
     , Input(..)
     )
 where
@@ -32,7 +34,7 @@ import Test.SmallCheck.Series (Serial)
 main :: IO ()
 main = do
     print (calculateSumOfProductsFormula customInput)
-    print (calculatePrimeImplicantsFormula customInput)
+    print (calculatePrimeImplicants customInput)
 
 customInput :: Input
 customInput = Input
@@ -78,6 +80,7 @@ data Input = Input
     { minTerms :: [[Bool]]
     , dontCare :: [[Bool]]
     }
+    deriving (Eq, Show)
 
 numOfBooleanVars :: Input -> Natural
 numOfBooleanVars input = minTerms input & head & length & fromIntegral
@@ -312,11 +315,16 @@ derivePrimeImplicantsFromImplicants implicants =
             then result
             else derivePrimeImplicantsFromImplicants result
 
-calculatePrimeImplicantsFormula :: Input -> [ Implicant ]
-calculatePrimeImplicantsFormula myInput = generateTermTable myInput
+calculatePrimeImplicants :: Input -> [ Implicant ]
+calculatePrimeImplicants myInput = generateTermTable myInput
     & filter (\(_, value) -> termBoolOutputIsNotFalse value)
     & fmap (fmap BoolValue . fst)
     & derivePrimeImplicantsFromImplicants
+
+calculatePrimeImplicantsFormula :: Input -> BooleanFormula
+calculatePrimeImplicantsFormula myInput = calculatePrimeImplicants myInput
+    & fmap implicantToBooleanFormula
+    & foldr1 Or
 
 retrieveVariablesFromBooleanFormula :: BooleanFormula -> [ String ]
 retrieveVariablesFromBooleanFormula (And x0 x1) = retrieveVariablesFromBooleanFormula x0 ++ retrieveVariablesFromBooleanFormula x1

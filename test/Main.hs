@@ -2,15 +2,20 @@
 
 module Main (main) where
 
+import qualified Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+
 import Test.Tasty
 import Test.Tasty.SmallCheck as SC
 import Test.Tasty.QuickCheck as QC
+import Test.Tasty.Hedgehog as HH
 import Test.Tasty.HUnit
 
 import Data.List
 
 import qualified QuineMcCluskey as QM
-import qualified GHC.IO.Encoding as QM
+import Data.Function ((&))
 
 main :: IO ()
 main = defaultMain tests
@@ -23,40 +28,37 @@ tests = testGroup "Tests"
 
 properties :: TestTree
 properties = testGroup "Properties"
-  [ scProps
-  , qcProps
+  [ hedgehogProperties
   ]
 
-scProps :: TestTree
-scProps = testGroup "(checked by SmallCheck)"
-  -- [ SC.testProperty "all BooleanFormula values are valid boolean functions" $
-  --     \booleanFormula -> 
-  --       let
-  --         result =
-  --           QM.interpretBooleanFormula
-  --             booleanFormula
-  --             (replicate (length . QM.retrieveVariablesFromBooleanFormula $ booleanFormula) True)
-  --       in
-  --         isJust result
-  [ SC.testProperty "Fermat's little theorem" $
-      \x -> ((x :: Integer)^(7::Integer) - x) `mod` 7 == 0
-  -- the following property does not hold
-  -- , SC.testProperty "Fermat's last theorem" $
-  --     \x y z n ->
-  --       (n :: Integer) >= 3 SC.==> x^n + y^n /= (z^n :: Integer)
+-- FIXME: This is pretty wasteful because we have duplicate bools
+inputGenerator :: Hedgehog.MonadGen m => m (QM.Input, Int)
+inputGenerator = do
+  numOfBools <- Gen.int (Range.linear 1 20)
+  numOfRowsOfBools <- Gen.int (Range.linear 1 numOfBools)
+  bools <- Gen.list (Range.singleton numOfRowsOfBools) (Gen.list (Range.singleton numOfBools) Gen.bool)
+  let uniqueBools = nub bools
+  numOfMinTerms <- Gen.int (Range.linear 1 (length uniqueBools))
+  let minTerms = take numOfMinTerms uniqueBools
+  let dontCare = drop numOfMinTerms uniqueBools
+  let input = QM.Input { QM.minTerms = minTerms, QM.dontCare = dontCare }
+  pure (input, numOfBools)
+
+hedgehogProperties :: TestTree
+hedgehogProperties = testGroup "(checked by Hedgehog)"
+  [ HH.testProperty "boolean formula after prime implicants equivalent to sum of products" $
+      booleanFormulaAfterPrimeImplicantsEquivalentToSumOfProducts
   ]
 
-qcProps :: TestTree
-qcProps = testGroup "(checked by QuickCheck)"
-  [ QC.testProperty "sort == sort . reverse" $
-      \list -> sort (list :: [Int]) == sort (reverse list)
-  , QC.testProperty "Fermat's little theorem" $
-      \x -> ((x :: Integer)^(7::Integer) - x) `mod` 7 == 0
-  -- the following property does not hold
-  -- , QC.testProperty "Fermat's last theorem" $
-  --     \x y z n ->
-  --       (n :: Integer) >= 3 QC.==> x^n + y^n /= (z^n :: Integer)
-  ]
+booleanFormulaAfterPrimeImplicantsEquivalentToSumOfProducts :: Hedgehog.Property
+booleanFormulaAfterPrimeImplicantsEquivalentToSumOfProducts =
+  Hedgehog.property $ do
+    inputAndNumOfBools <- Hedgehog.forAll inputGenerator
+    let (input, numOfBools) = inputAndNumOfBools
+    boolsToTestAgainstFormula <- Hedgehog.forAll $ Gen.list (Range.singleton numOfBools) Gen.bool
+    let primeImplicantsFormula = QM.calculatePrimeImplicantsFormula input & QM.interpretBooleanFormula
+    let productOfSumsFormula = QM.calculateSumOfProductsFormula input & QM.interpretBooleanFormula
+    primeImplicantsFormula boolsToTestAgainstFormula Hedgehog.=== productOfSumsFormula boolsToTestAgainstFormula
 
 myFormula0 :: QM.BooleanFormula
 myFormula0 = "x" * "y" + "y" * "z" + (-"w")
@@ -102,7 +104,7 @@ unitTests = testGroup "Unit tests"
         ]
         @?= [ QM.stringToImplicant "-100" ]
   , testCase "calculatePrimeImplicantsFormula works on known input case 0" $
-    QM.calculatePrimeImplicantsFormula calculatePrimeImplicantsFormulaCase0Input 
+    QM.calculatePrimeImplicants calculatePrimeImplicantsFormulaCase0Input 
       @?= 
         [ QM.stringToImplicant "-100"
         , QM.stringToImplicant "1--0"
