@@ -16,6 +16,7 @@ import Data.List
 
 import qualified QuineMcCluskey as QM
 import Data.Function ((&))
+import Control.Monad (forM_)
 
 main :: IO ()
 main = defaultMain tests
@@ -46,19 +47,20 @@ inputGenerator = do
 
 hedgehogProperties :: TestTree
 hedgehogProperties = testGroup "(checked by Hedgehog)"
-  [ HH.testProperty "boolean formula after prime implicants equivalent to sum of products" $
-      booleanFormulaAfterPrimeImplicantsEquivalentToSumOfProducts
+  [ HH.testProperty "boolean formula after prime implicants equivalent to sum of products on min terms" $
+      booleanFormulaAfterPrimeImplicantsAgreesWithSumOfProductOnMinTerms
   ]
 
-booleanFormulaAfterPrimeImplicantsEquivalentToSumOfProducts :: Hedgehog.Property
-booleanFormulaAfterPrimeImplicantsEquivalentToSumOfProducts =
+booleanFormulaAfterPrimeImplicantsAgreesWithSumOfProductOnMinTerms :: Hedgehog.Property
+booleanFormulaAfterPrimeImplicantsAgreesWithSumOfProductOnMinTerms =
   Hedgehog.property $ do
     inputAndNumOfBools <- Hedgehog.forAll inputGenerator
-    let (input, numOfBools) = inputAndNumOfBools
-    boolsToTestAgainstFormula <- Hedgehog.forAll $ Gen.list (Range.singleton numOfBools) Gen.bool
+    let (input, _) = inputAndNumOfBools
     let primeImplicantsFormula = QM.calculatePrimeImplicantsFormula input & QM.interpretBooleanFormula
-    let productOfSumsFormula = QM.calculateSumOfProductsFormula input & QM.interpretBooleanFormula
-    primeImplicantsFormula boolsToTestAgainstFormula Hedgehog.=== productOfSumsFormula boolsToTestAgainstFormula
+    let productOfSumsFormula = QM.calculateSumOfProductsFunction input & QM.interpretBooleanFormula
+    minTerm <- Hedgehog.forAll (Gen.element $ QM.minTerms input)
+    primeImplicantsFormula minTerm Hedgehog./== Nothing
+    primeImplicantsFormula minTerm Hedgehog.=== productOfSumsFormula minTerm
 
 myFormula0 :: QM.BooleanFormula
 myFormula0 = "x" * "y" + "y" * "z" + (-"w")
@@ -67,7 +69,8 @@ myFormula1 :: QM.BooleanFormula
 myFormula1 = "x" * "y" + "y" * "z"
 
 calculatePrimeImplicantsFormulaCase0Input :: QM.Input
-calculatePrimeImplicantsFormulaCase0Input = QM.Input
+calculatePrimeImplicantsFormulaCase0Input = 
+  QM.Input
     { QM.minTerms =
             [ [False, True, False, False]
             , [True, False, False, False]
@@ -82,13 +85,22 @@ calculatePrimeImplicantsFormulaCase0Input = QM.Input
             ]
     }
 
+knownInputCase1 :: QM.Input
+knownInputCase1 = 
+  QM.Input
+    { QM.minTerms = [ [ True , False , False , False ] ]
+    , QM.dontCare = [ [ True , True , True , True ] ]
+    }
+
+
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
   [ testCase "Example Boolean formula is interpreted correctly" $
-      QM.interpretBooleanFormula myFormula0 [True, True, True, True] @?= Just True
-
+      QM.interpretBooleanFormula (QM.functionFromFormulaAssumingAllVariablesUsed myFormula0) [True, True, True, True] @?= Just True
   , testCase "Another example Boolean formula is interpreted correctly" $
-      QM.interpretBooleanFormula myFormula1 [False, False, False] @?= Just False
+      QM.interpretBooleanFormula (QM.functionFromFormulaAssumingAllVariablesUsed myFormula1) [False, False, False] @?= Just False
+  , testCase "retrieveVariablesFromBooleanFormula retrieves variables from a known case correctly" $
+      QM.retrieveVariablesFromBooleanFormula ("a" * (-"b") * (-"c") * (-"d")) @?= [ "a", "b", "c", "d" ]
   , testCase "combineImplicants works on known inputs case 0" $
       QM.combineImplicants (QM.stringToImplicant "0100") (QM.stringToImplicant "1100") @?= Just (QM.stringToImplicant "-100")
   , testCase "combineImplicants works on known inputs case 1" $
@@ -111,4 +123,10 @@ unitTests = testGroup "Unit tests"
         , QM.stringToImplicant "1-1-"
         , QM.stringToImplicant "10--"
         ]
+  , testCase "calculatePrimeImplicantsFormula works on known input case 1" $
+    QM.calculateSumOfProductsFormula knownInputCase1
+      @?= "a" * (-"b") * (-"c") * (-"d")
+  , testCase "calculatePrimeImplicantsFormula works on known input case 2" $
+    QM.interpretBooleanFormula (QM.calculateSumOfProductsFunction knownInputCase1) [ True, False, False, False ]
+      @?= Just True
   ]

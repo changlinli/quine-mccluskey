@@ -8,6 +8,7 @@
 module QuineMcCluskey
     ( main
     , BooleanFormula(..)
+    , BooleanFunction(..)
     , interpretBooleanFormula
     , retrieveVariablesFromBooleanFormula
     , combineImplicants
@@ -17,7 +18,9 @@ module QuineMcCluskey
     , calculatePrimeImplicants
     , calculatePrimeImplicantsFormula
     , calculateSumOfProductsFormula
+    , calculateSumOfProductsFunction
     , Input(..)
+    , functionFromFormulaAssumingAllVariablesUsed
     )
 where
 
@@ -26,9 +29,11 @@ import Numeric.Natural (Natural)
 import Data.Function ((&))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromJust)
 import GHC.Generics (Generic)
 import Test.SmallCheck.Series (Serial)
+import qualified Debug.Trace as Debug
+import Data.Containers.ListUtils (nubOrd)
 
 
 main :: IO ()
@@ -61,8 +66,6 @@ data BooleanFormula
     | ConstantFalse
     deriving (Eq, Generic)
 
-instance (Monad m) => Serial m BooleanFormula
-
 instance Show BooleanFormula where
     show (And x0 x1) = show x0 ++ show x1
     show (Or x0 x1) = show x0 ++ " + " ++ show x1
@@ -75,6 +78,12 @@ instance Show BooleanFormula where
 instance IsString BooleanFormula where
     fromString :: String -> BooleanFormula
     fromString = LogicalVariable
+
+data BooleanFunction = BooleanFunction
+    { variables :: [ String ]
+    , body :: BooleanFormula
+    }
+    deriving (Show)
 
 data Input = Input
     { minTerms :: [[Bool]]
@@ -166,15 +175,22 @@ toInt x = fromIntegral (toInteger x)
 idxToVariableName :: Natural -> String
 idxToVariableName idx = variableNames !! toInt idx
 
-implicantToBooleanExpression :: Implicant -> Maybe BooleanFormula
-implicantToBooleanExpression implicant = foldr convertBoolToBooleanExpression (1, firstElemExpression) (tail implicant) & snd
+implicantToBooleanExpression :: Implicant -> Maybe BooleanFunction
+implicantToBooleanExpression implicant = 
+    do
+        booleanFormula <- booleanFormulaMaybe
+        pure $
+            BooleanFunction
+                { variables = take (fromIntegral idx) variableNames
+                , body = booleanFormula
+                }
     where
         firstElem = head implicant
         firstElemExpression = case firstElem of
             DontCare -> Nothing
             BoolValue boolVal -> if boolVal then Just "a" else Just . Not $ "a"
 
-        convertBoolToBooleanExpression implicantValue (idx, currentExpressionMaybe) =
+        convertBoolToBooleanExpression (idx, currentExpressionMaybe) implicantValue =
             case (implicantValue, currentExpressionMaybe) of
                 (BoolValue True, Just currentExpression) ->
                     (idx + 1, Just $ And currentExpression (LogicalVariable $ idxToVariableName idx))
@@ -193,25 +209,29 @@ implicantToBooleanExpression implicant = foldr convertBoolToBooleanExpression (1
 
                 (DontCare, Nothing) ->
                     (idx + 1, Nothing)
+        
+        (idx, booleanFormulaMaybe) = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail implicant)
 
 -- The minimal boolean formula which is true if and only if passed this set of booleans
 boolTermToBooleanExpression :: [ Bool ] -> BooleanFormula
-boolTermToBooleanExpression bools = foldr convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
+boolTermToBooleanExpression bools = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
     where
         firstElem = head bools
         firstElemExpression = if firstElem then "a" else Not "a"
 
-        convertBoolToBooleanExpression True (idx, currentExpression) = (idx + 1, And currentExpression (LogicalVariable $ idxToVariableName idx))
-        convertBoolToBooleanExpression False (idx, currentExpression) = (idx + 1, And currentExpression (Not (LogicalVariable $ idxToVariableName idx)))
+        convertBoolToBooleanExpression (idx, currentExpression) True = (idx + 1, And currentExpression (LogicalVariable $ idxToVariableName idx))
+        convertBoolToBooleanExpression (idx, currentExpression) False = (idx + 1, And currentExpression (Not (LogicalVariable $ idxToVariableName idx)))
 
 extractBoolValue :: ImplicantValue -> Maybe Bool
 extractBoolValue implicantValue = case implicantValue of
     DontCare -> Nothing
     BoolValue bool -> Just bool
 
-implicantToBooleanFormula :: Implicant -> BooleanFormula
-implicantToBooleanFormula implicant = mapMaybe extractBoolValue implicant
-    & boolTermToBooleanExpression
+implicantToBooleanFormula :: Implicant -> BooleanFunction
+implicantToBooleanFormula implicant = implicant
+    & implicantToBooleanExpression
+    & traceWithValue "after extracting bool values"
+    & fromJust
 
 -- This doesn't do minimization yet, just finds a correct expression
 calculateSumOfProductsFormula :: Input -> BooleanFormula
@@ -219,6 +239,18 @@ calculateSumOfProductsFormula myInput = generateTermTable myInput
     & filter (\(_, tableResult) -> isTrueValue tableResult)
     & fmap (boolTermToBooleanExpression . fst)
     & foldr1 Or
+
+-- We can directly extract variable names from the formula because we know by the way that the sum of products is calculated that every variable name must be used
+calculateSumOfProductsFunction :: Input -> BooleanFunction
+calculateSumOfProductsFunction myInput = 
+    let
+        formula = calculateSumOfProductsFormula myInput
+        variablesForFunction = retrieveVariablesFromBooleanFormula formula
+    in
+        BooleanFunction
+            { variables = variablesForFunction
+            , body = formula
+            }
 
 data ImplicantComparison
     = IdenticalSoFar Implicant
@@ -321,10 +353,20 @@ calculatePrimeImplicants myInput = generateTermTable myInput
     & fmap (fmap BoolValue . fst)
     & derivePrimeImplicantsFromImplicants
 
-calculatePrimeImplicantsFormula :: Input -> BooleanFormula
-calculatePrimeImplicantsFormula myInput = calculatePrimeImplicants myInput
-    & fmap implicantToBooleanFormula
-    & foldr1 Or
+-- FIXME: This is partial
+calculatePrimeImplicantsFormula :: Input -> BooleanFunction
+calculatePrimeImplicantsFormula myInput = 
+    let
+        perImplicantBooleanFunctions = calculatePrimeImplicants myInput
+            & fmap implicantToBooleanFormula
+        variablesForFunction = variables . head $ perImplicantBooleanFunctions
+        perImplicantBooleanFormulas = fmap body perImplicantBooleanFunctions
+        combinedFormula = foldr1 Or perImplicantBooleanFormulas
+    in
+        BooleanFunction
+            { variables = variablesForFunction
+            , body = combinedFormula
+            }
 
 retrieveVariablesFromBooleanFormula :: BooleanFormula -> [ String ]
 retrieveVariablesFromBooleanFormula (And x0 x1) = retrieveVariablesFromBooleanFormula x0 ++ retrieveVariablesFromBooleanFormula x1
@@ -334,24 +376,53 @@ retrieveVariablesFromBooleanFormula (LogicalVariable var) = [ var ]
 retrieveVariablesFromBooleanFormula ConstantTrue = []
 retrieveVariablesFromBooleanFormula ConstantFalse = []
 
+traceWithValue :: Show a => String -> a -> a
+traceWithValue str a = Debug.trace (str ++ ": " ++ show a) a
+-- traceWithValue str a = const a str
+
 -- If the number of bools given is incorrect, we give back Nothing
-interpretBooleanFormula :: BooleanFormula -> [ Bool ] -> Maybe Bool
-interpretBooleanFormula formula bools =
+interpretBooleanFormula :: BooleanFunction -> [ Bool ] -> Maybe Bool
+interpretBooleanFormula function bools =
+    interpretBooleanFormulaMapVariableNames (body function) variablesToBools
+    where
+        variablesToBools = zip (nubOrd . variables $ function) bools
+            & Map.fromList
+
+interpretBooleanFormulaMapVariableNames :: BooleanFormula -> Map.Map String Bool -> Maybe Bool
+interpretBooleanFormulaMapVariableNames formula variablesToBools =
     case formula of
         And x0 x1 ->
             do
-                y0 <- interpretBooleanFormula x0 bools
-                y1 <- interpretBooleanFormula x1 bools
-                pure (y0 && y1)
+                y0 <- interpretBooleanFormulaMapVariableNames x0 variablesToBools
+                y1 <- interpretBooleanFormulaMapVariableNames x1 variablesToBools
+                pure $ traceWithValue "(y0 && y1)" (y0 && y1)
         Or x0 x1 ->
             do
-                y0 <- interpretBooleanFormula x0 bools
-                y1 <- interpretBooleanFormula x1 bools
-                pure (y0 || y1)
-        Not x -> not <$> interpretBooleanFormula x bools
-        LogicalVariable var -> Map.lookup var variablesToBools
+                y0 <- interpretBooleanFormulaMapVariableNames x0 variablesToBools
+                y1 <- interpretBooleanFormulaMapVariableNames x1 variablesToBools
+                pure $ traceWithValue "(y0 || y1)" (y0 || y1)
+        Not x -> traceWithValue "not" `fmap` not <$> interpretBooleanFormulaMapVariableNames x variablesToBools
+        LogicalVariable var -> traceWithValue ("var" ++ show var) `fmap` Map.lookup var variablesToBools
         ConstantTrue -> Just True
         ConstantFalse -> Just False
-    where
-        variablesToBools = zip (retrieveVariablesFromBooleanFormula formula) bools
-            & Map.fromList
+
+-- This function assumes that all variables that the function takes in are present in the formula
+-- So e.g. for the formula ab + de we'll have a function that takes in four arguments: a, b, d, and e.
+-- Note however that "c" will be missing!
+functionFromFormulaAssumingAllVariablesUsed :: BooleanFormula -> BooleanFunction
+functionFromFormulaAssumingAllVariablesUsed formula =
+    BooleanFunction
+        { variables = retrieveVariablesFromBooleanFormula formula
+        , body = formula
+        }
+
+blahblah = Input
+               { minTerms = [ [ False , True , True , False ] ]
+               , dontCare = [ [ True , True , True , False ] ]
+               }
+
+
+blahblahblah = calculatePrimeImplicantsFormula blahblah
+
+finalResult = interpretBooleanFormula blahblahblah [ False , True , True , False ]
+ 
