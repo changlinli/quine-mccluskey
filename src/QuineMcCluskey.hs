@@ -31,7 +31,6 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, fromJust)
 import GHC.Generics (Generic)
-import Test.SmallCheck.Series (Serial)
 import qualified Debug.Trace as Debug
 import Data.Containers.ListUtils (nubOrd)
 
@@ -79,6 +78,8 @@ instance IsString BooleanFormula where
     fromString :: String -> BooleanFormula
     fromString = LogicalVariable
 
+-- This is meant to represent a full function, even if certain variables are left unused, e.g.
+-- f(a, b, c, d) = ab + d
 data BooleanFunction = BooleanFunction
     { variables :: [ String ]
     , body :: BooleanFormula
@@ -175,13 +176,13 @@ toInt x = fromIntegral (toInteger x)
 idxToVariableName :: Natural -> String
 idxToVariableName idx = variableNames !! toInt idx
 
-implicantToBooleanExpression :: Implicant -> Maybe BooleanFunction
-implicantToBooleanExpression implicant = 
+implicantToBooleanFunction :: Implicant -> Maybe BooleanFunction
+implicantToBooleanFunction implicant = 
     do
         booleanFormula <- booleanFormulaMaybe
         pure $
             BooleanFunction
-                { variables = take (fromIntegral idx) variableNames
+                { variables = take (fromIntegral finalIdx) variableNames
                 , body = booleanFormula
                 }
     where
@@ -210,11 +211,11 @@ implicantToBooleanExpression implicant =
                 (DontCare, Nothing) ->
                     (idx + 1, Nothing)
         
-        (idx, booleanFormulaMaybe) = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail implicant)
+        (finalIdx, booleanFormulaMaybe) = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail implicant)
 
 -- The minimal boolean formula which is true if and only if passed this set of booleans
-boolTermToBooleanExpression :: [ Bool ] -> BooleanFormula
-boolTermToBooleanExpression bools = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
+boolTermToBooleanFormula :: [ Bool ] -> BooleanFormula
+boolTermToBooleanFormula bools = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail bools) & snd
     where
         firstElem = head bools
         firstElemExpression = if firstElem then "a" else Not "a"
@@ -222,14 +223,9 @@ boolTermToBooleanExpression bools = foldl convertBoolToBooleanExpression (1, fir
         convertBoolToBooleanExpression (idx, currentExpression) True = (idx + 1, And currentExpression (LogicalVariable $ idxToVariableName idx))
         convertBoolToBooleanExpression (idx, currentExpression) False = (idx + 1, And currentExpression (Not (LogicalVariable $ idxToVariableName idx)))
 
-extractBoolValue :: ImplicantValue -> Maybe Bool
-extractBoolValue implicantValue = case implicantValue of
-    DontCare -> Nothing
-    BoolValue bool -> Just bool
-
 implicantToBooleanFormula :: Implicant -> BooleanFunction
 implicantToBooleanFormula implicant = implicant
-    & implicantToBooleanExpression
+    & implicantToBooleanFunction
     & traceWithValue "after extracting bool values"
     & fromJust
 
@@ -237,7 +233,7 @@ implicantToBooleanFormula implicant = implicant
 calculateSumOfProductsFormula :: Input -> BooleanFormula
 calculateSumOfProductsFormula myInput = generateTermTable myInput
     & filter (\(_, tableResult) -> isTrueValue tableResult)
-    & fmap (boolTermToBooleanExpression . fst)
+    & fmap (boolTermToBooleanFormula . fst)
     & foldr1 Or
 
 -- We can directly extract variable names from the formula because we know by the way that the sum of products is calculated that every variable name must be used
@@ -415,14 +411,3 @@ functionFromFormulaAssumingAllVariablesUsed formula =
         { variables = retrieveVariablesFromBooleanFormula formula
         , body = formula
         }
-
-blahblah = Input
-               { minTerms = [ [ False , True , True , False ] ]
-               , dontCare = [ [ True , True , True , False ] ]
-               }
-
-
-blahblahblah = calculatePrimeImplicantsFormula blahblah
-
-finalResult = interpretBooleanFormula blahblahblah [ False , True , True , False ]
- 

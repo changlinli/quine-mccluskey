@@ -7,8 +7,6 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
 import Test.Tasty
-import Test.Tasty.SmallCheck as SC
-import Test.Tasty.QuickCheck as QC
 import Test.Tasty.Hedgehog as HH
 import Test.Tasty.HUnit
 
@@ -16,7 +14,6 @@ import Data.List
 
 import qualified QuineMcCluskey as QM
 import Data.Function ((&))
-import Control.Monad (forM_)
 
 main :: IO ()
 main = defaultMain tests
