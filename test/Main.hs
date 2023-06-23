@@ -56,9 +56,11 @@ booleanFormulaAfterPrimeImplicantsAgreesWithSumOfProductOnMinTerms =
     let (input, _) = inputAndNumOfBools
     let primeImplicantsFormula = QM.calculatePrimeImplicantsFormula input & QM.interpretBooleanFormula
     let productOfSumsFormula = QM.calculateSumOfProductsFunction input & QM.interpretBooleanFormula
+    let minimalFunction = QM.calculateMinimalFunction input & QM.interpretBooleanFormula
     minTerm <- Hedgehog.forAll (Gen.element $ QM.minTerms input)
     primeImplicantsFormula minTerm Hedgehog./== Nothing
     primeImplicantsFormula minTerm Hedgehog.=== productOfSumsFormula minTerm
+    minimalFunction minTerm Hedgehog.=== minimalFunction minTerm
 
 myFormula0 :: QM.BooleanFormula
 myFormula0 = "x" * "y" + "y" * "z" + (-"w")

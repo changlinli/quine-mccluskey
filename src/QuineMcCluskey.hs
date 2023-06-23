@@ -23,6 +23,7 @@ module QuineMcCluskey
     , functionFromFormulaAssumingAllVariablesUsed
     , allSubsets
     , Implicant(..)
+    , calculateMinimalFunction
     )
 where
 
@@ -135,9 +136,9 @@ data ImplicantValue
     | BoolValue Bool
     deriving (Eq, Show, Ord)
 
-data Implicant = Implicant 
+data Implicant = Implicant
     { implicantValues :: [ ImplicantValue ]
-    , minTermIndices :: Set.Set Int 
+    , minTermIndices :: Set.Set Int
     }
     deriving (Show, Ord, Eq)
 
@@ -183,7 +184,7 @@ idxToVariableName :: Natural -> String
 idxToVariableName idx = variableNames !! toInt idx
 
 implicantToBooleanFunction :: Implicant -> Maybe BooleanFunction
-implicantToBooleanFunction implicant = 
+implicantToBooleanFunction implicant =
     do
         booleanFormula <- booleanFormulaMaybe
         pure $
@@ -216,7 +217,7 @@ implicantToBooleanFunction implicant =
 
                 (DontCare, Nothing) ->
                     (idx + 1, Nothing)
-        
+
         (finalIdx, booleanFormulaMaybe) = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail (implicantValues implicant))
 
 -- The minimal boolean formula which is true if and only if passed this set of booleans
@@ -241,9 +242,25 @@ calculateSumOfProductsFormula myInput = generateTermTable myInput
     & fmap (boolTermToBooleanFormula . fst)
     & foldr1 Or
 
+calculateMinimalFunction :: Input -> BooleanFunction
+calculateMinimalFunction myInput = 
+    let 
+        implicants = calculatePrimeImplicants myInput
+        minTermIdxs = calculateMinTermIndices myInput
+        minimalCover = minimumCoverOfImplicants minTermIdxs implicants
+        perImplicantBooleanFunctions = fmap implicantToBooleanFormula minimalCover
+        variablesForFunction = variables . head $ perImplicantBooleanFunctions
+        perImplicantBooleanFormulas = fmap body perImplicantBooleanFunctions
+        combinedFormula = foldr1 Or perImplicantBooleanFormulas
+    in
+        BooleanFunction
+            { variables = variablesForFunction
+            , body = combinedFormula
+            }
+
 -- We can directly extract variable names from the formula because we know by the way that the sum of products is calculated that every variable name must be used
 calculateSumOfProductsFunction :: Input -> BooleanFunction
-calculateSumOfProductsFunction myInput = 
+calculateSumOfProductsFunction myInput =
     let
         formula = calculateSumOfProductsFormula myInput
         variablesForFunction = retrieveVariablesFromBooleanFormula formula
@@ -292,13 +309,13 @@ combineImplicants implicant0 implicant1 =
 
 -- A nice way of writing them out with ones and zeroes and dashes
 stringToImplicant :: String -> Set.Set Int -> Implicant
-stringToImplicant str indices = 
-    mapMaybe 
-        (\c -> 
-            if c == '1' 
-                then Just $ BoolValue True 
-                else if c == '0' then Just $ BoolValue False 
-                else if c == '-' then Just DontCare 
+stringToImplicant str indices =
+    mapMaybe
+        (\c ->
+            if c == '1'
+                then Just $ BoolValue True
+                else if c == '0' then Just $ BoolValue False
+                else if c == '-' then Just DontCare
                 else Nothing
         )
         str
@@ -364,9 +381,16 @@ calculatePrimeImplicants myInput = generateTermTable myInput
     & fmap (\(idx, (bools, _)) -> Implicant { minTermIndices = Set.singleton idx, implicantValues = fmap BoolValue bools })
     & derivePrimeImplicantsFromImplicants
 
+calculateMinTermIndices :: Input -> Set.Set Int
+calculateMinTermIndices myInput = generateTermTable myInput
+    & zipWithIndices
+    & filter (\(_, (_, term)) -> isTrueValue term)
+    & fmap fst
+    & Set.fromList
+
 -- FIXME: This is partial
 calculatePrimeImplicantsFormula :: Input -> BooleanFunction
-calculatePrimeImplicantsFormula myInput = 
+calculatePrimeImplicantsFormula myInput =
     let
         perImplicantBooleanFunctions = calculatePrimeImplicants myInput
             & fmap implicantToBooleanFormula
@@ -434,13 +458,10 @@ allSubsets (x : xs) = newSubsets ++ allSubsets xs
     where
         newSubsets = [ x : ys  | ys <- allSubsets xs ]
 
-doesImplicantImplyMinTerm :: [Bool] -> Implicant -> Bool
-doesImplicantImplyMinTerm minTerm implicant = undefined
-
-doImplicantsImplyMinTerms :: [[Bool]] -> [Implicant] -> Bool
-doImplicantsImplyMinTerms minTerms implicants = all (uncurry doesImplicantImplyMinTerm) minTermsAndImplicantPairs
+minimumCoverOfImplicants :: Set.Set Int -> [ Implicant ] -> [ Implicant ]
+minimumCoverOfImplicants minTermIdxs implicants = foldl f [] (allSubsets implicants)
     where
-        minTermsAndImplicantPairs = [ (m, i) | m <- minTerms, i <- implicants ]
-
-minimumCoverOfImplicants :: [[Bool]] -> [ Implicant ] -> [ Implicant ]
-minimumCoverOfImplicants minTerms implicants = undefined
+        f acc implicants
+          | minTermIdxs Set.\\ foldl Set.union Set.empty (fmap minTermIndices implicants) /= Set.empty = acc
+          | length implicants < length acc = implicants
+          | otherwise = acc
