@@ -21,6 +21,8 @@ module QuineMcCluskey
     , calculateSumOfProductsFunction
     , Input(..)
     , functionFromFormulaAssumingAllVariablesUsed
+    , allSubsets
+    , Implicant(..)
     )
 where
 
@@ -133,7 +135,11 @@ data ImplicantValue
     | BoolValue Bool
     deriving (Eq, Show, Ord)
 
-type Implicant = [ ImplicantValue ]
+data Implicant = Implicant 
+    { implicantValues :: [ ImplicantValue ]
+    , minTermIndices :: Set.Set Int 
+    }
+    deriving (Show, Ord, Eq)
 
 generateAllBooleanPossibilities :: Natural -> [[ Bool ]]
 generateAllBooleanPossibilities 0 = [[]]
@@ -186,7 +192,7 @@ implicantToBooleanFunction implicant =
                 , body = booleanFormula
                 }
     where
-        firstElem = head implicant
+        firstElem = head (implicantValues implicant)
         firstElemExpression = case firstElem of
             DontCare -> Nothing
             BoolValue boolVal -> if boolVal then Just "a" else Just . Not $ "a"
@@ -211,7 +217,7 @@ implicantToBooleanFunction implicant =
                 (DontCare, Nothing) ->
                     (idx + 1, Nothing)
         
-        (finalIdx, booleanFormulaMaybe) = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail implicant)
+        (finalIdx, booleanFormulaMaybe) = foldl convertBoolToBooleanExpression (1, firstElemExpression) (tail (implicantValues implicant))
 
 -- The minimal boolean formula which is true if and only if passed this set of booleans
 boolTermToBooleanFormula :: [ Bool ] -> BooleanFormula
@@ -226,7 +232,6 @@ boolTermToBooleanFormula bools = foldl convertBoolToBooleanExpression (1, firstE
 implicantToBooleanFormula :: Implicant -> BooleanFunction
 implicantToBooleanFormula implicant = implicant
     & implicantToBooleanFunction
-    & traceWithValue "after extracting bool values"
     & fromJust
 
 -- This doesn't do minimization yet, just finds a correct expression
@@ -249,8 +254,8 @@ calculateSumOfProductsFunction myInput =
             }
 
 data ImplicantComparison
-    = IdenticalSoFar Implicant
-    | IdenticalExceptForOneBoolVal Implicant
+    = IdenticalSoFar [ ImplicantValue ]
+    | IdenticalExceptForOneBoolVal [ ImplicantValue ]
     | MismatchedDontCares
     | MoreThanOneBoolValDifferent
 
@@ -276,22 +281,28 @@ implicantsFoldOnce (i0, i1) comparisonResult =
 -- Otherwise return Nothing
 combineImplicants :: Implicant -> Implicant -> Maybe Implicant
 combineImplicants implicant0 implicant1 =
-    case foldr implicantsFoldOnce (IdenticalSoFar []) (zip implicant0 implicant1) of
+    case foldr implicantsFoldOnce (IdenticalSoFar []) (zip (implicantValues implicant0) (implicantValues implicant1)) of
         IdenticalSoFar _ -> Nothing
-        IdenticalExceptForOneBoolVal result -> Just result
+        IdenticalExceptForOneBoolVal result -> Just (Implicant { implicantValues = result, minTermIndices = Set.union indices0 indices1 })
+            where
+                indices0 = minTermIndices implicant0
+                indices1 = minTermIndices implicant1
         MismatchedDontCares -> Nothing
         MoreThanOneBoolValDifferent -> Nothing
 
 -- A nice way of writing them out with ones and zeroes and dashes
-stringToImplicant :: String -> Implicant
-stringToImplicant = mapMaybe 
-    (\c -> 
-        if c == '1' 
-            then Just $ BoolValue True 
-            else if c == '0' then Just $ BoolValue False 
-            else if c == '-' then Just DontCare 
-            else Nothing
-    )
+stringToImplicant :: String -> Set.Set Int -> Implicant
+stringToImplicant str indices = 
+    mapMaybe 
+        (\c -> 
+            if c == '1' 
+                then Just $ BoolValue True 
+                else if c == '0' then Just $ BoolValue False 
+                else if c == '-' then Just DontCare 
+                else Nothing
+        )
+        str
+        & \i -> Implicant { implicantValues = i, minTermIndices = indices }
 
 data ImplicantUsage = ImplicantUsage
     { implicantsUsed :: Set.Set Implicant
@@ -343,10 +354,14 @@ derivePrimeImplicantsFromImplicants implicants =
             then result
             else derivePrimeImplicantsFromImplicants result
 
+zipWithIndices :: [b] -> [(Int, b)]
+zipWithIndices = zip [0..]
+
 calculatePrimeImplicants :: Input -> [ Implicant ]
 calculatePrimeImplicants myInput = generateTermTable myInput
-    & filter (\(_, value) -> termBoolOutputIsNotFalse value)
-    & fmap (fmap BoolValue . fst)
+    & zipWithIndices
+    & filter (\(_, (_, value)) -> termBoolOutputIsNotFalse value)
+    & fmap (\(idx, (bools, _)) -> Implicant { minTermIndices = Set.singleton idx, implicantValues = fmap BoolValue bools })
     & derivePrimeImplicantsFromImplicants
 
 -- FIXME: This is partial
@@ -391,14 +406,14 @@ interpretBooleanFormulaMapVariableNames formula variablesToBools =
             do
                 y0 <- interpretBooleanFormulaMapVariableNames x0 variablesToBools
                 y1 <- interpretBooleanFormulaMapVariableNames x1 variablesToBools
-                pure $ traceWithValue "(y0 && y1)" (y0 && y1)
+                pure $ y0 && y1
         Or x0 x1 ->
             do
                 y0 <- interpretBooleanFormulaMapVariableNames x0 variablesToBools
                 y1 <- interpretBooleanFormulaMapVariableNames x1 variablesToBools
-                pure $ traceWithValue "(y0 || y1)" (y0 || y1)
-        Not x -> traceWithValue "not" `fmap` not <$> interpretBooleanFormulaMapVariableNames x variablesToBools
-        LogicalVariable var -> traceWithValue ("var" ++ show var) `fmap` Map.lookup var variablesToBools
+                pure $ y0 || y1
+        Not x -> not <$> interpretBooleanFormulaMapVariableNames x variablesToBools
+        LogicalVariable var -> Map.lookup var variablesToBools
         ConstantTrue -> Just True
         ConstantFalse -> Just False
 
@@ -411,3 +426,21 @@ functionFromFormulaAssumingAllVariablesUsed formula =
         { variables = retrieveVariablesFromBooleanFormula formula
         , body = formula
         }
+
+
+allSubsets :: [a] -> [[a]]
+allSubsets [] = [[]]
+allSubsets (x : xs) = newSubsets ++ allSubsets xs
+    where
+        newSubsets = [ x : ys  | ys <- allSubsets xs ]
+
+doesImplicantImplyMinTerm :: [Bool] -> Implicant -> Bool
+doesImplicantImplyMinTerm minTerm implicant = undefined
+
+doImplicantsImplyMinTerms :: [[Bool]] -> [Implicant] -> Bool
+doImplicantsImplyMinTerms minTerms implicants = all (uncurry doesImplicantImplyMinTerm) minTermsAndImplicantPairs
+    where
+        minTermsAndImplicantPairs = [ (m, i) | m <- minTerms, i <- implicants ]
+
+minimumCoverOfImplicants :: [[Bool]] -> [ Implicant ] -> [ Implicant ]
+minimumCoverOfImplicants minTerms implicants = undefined

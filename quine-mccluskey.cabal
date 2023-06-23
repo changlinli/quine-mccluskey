@@ -133,4 +133,5 @@ test-suite quine-mccluskey-test
         tasty-quickcheck ==0.10.2,
         tasty-hedgehog ==1.4.0.1,
         hedgehog ==1.2,
+        containers ^>=0.6.7,
         quine-mccluskey
