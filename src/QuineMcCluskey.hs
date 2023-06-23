@@ -24,6 +24,8 @@ module QuineMcCluskey
     , allSubsets
     , Implicant(..)
     , calculateMinimalFunction
+    , minimumCoverOfImplicants
+    , calculateMinTermIndices
     )
 where
 
@@ -459,7 +461,7 @@ allSubsets (x : xs) = newSubsets ++ allSubsets xs
         newSubsets = [ x : ys  | ys <- allSubsets xs ]
 
 minimumCoverOfImplicants :: Set.Set Int -> [ Implicant ] -> [ Implicant ]
-minimumCoverOfImplicants minTermIdxs implicants = foldl f [] (allSubsets implicants)
+minimumCoverOfImplicants minTermIdxs implicants = foldl f implicants (allSubsets implicants)
     where
         f acc implicants
           | minTermIdxs Set.\\ foldl Set.union Set.empty (fmap minTermIndices implicants) /= Set.empty = acc

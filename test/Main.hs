@@ -141,4 +141,11 @@ unitTests = testGroup "Unit tests"
       input = [1, 2, 3]
     in
       (Set.fromList . QM.allSubsets $ input) @?= Set.fromList [[], [1], [2], [3], [1, 2], [1, 3], [2, 3], [1, 2, 3]]
+  , testCase "minimumCoverOfImplicants" $
+    length (
+      QM.minimumCoverOfImplicants 
+        (QM.calculateMinTermIndices calculatePrimeImplicantsFormulaCase0Input) 
+        (QM.calculatePrimeImplicants calculatePrimeImplicantsFormulaCase0Input)
+    )
+      @?= 3
   ]
